@@ -4,12 +4,14 @@ import { useCart, Product as BaseProduct } from '../cart/CartContext';
 import { useRouter } from 'next/navigation';
 import Header from '../../../components/Header';
 
-// Mở rộng Product để có inventory và barcode
+// Mở rộng Product để có inventory, barcode, lots
 export type Product = BaseProduct & {
     inventory?: number;
     barcode?: string;
     image_links?: string[];
     _id?: string;
+    output_price?: number;
+    lots?: any[]; // Thêm thuộc tính lots để lưu danh sách lô
 };
 
 const discounts = [
@@ -38,6 +40,7 @@ interface ProductDetail extends Product {
     // Bổ sung các trường chi tiết nếu cần
     inventory?: number;
     barcode?: string;
+    output_price?: number;
 }
 
 // Màu sắc chủ đạo mới
@@ -78,12 +81,18 @@ export default function BanHangPage() {
                 // Lấy inventory và barcode cho từng sản phẩm
                 const productsWithDetail = await Promise.all(data.map(async (p: any) => {
                     const detail = await getProductDetail(p._id || p.id);
+                    // Tổng tồn kho là tổng inventory của tất cả các lô
+                    const lots = detail?.lots || [];
+                    const totalInventory = lots.reduce((sum: number, lot: any) => sum + (lot.inventory || 0), 0);
+                    // Lấy barcode của lô gần nhất còn tồn kho (nếu có)
+                    const firstLot = lots.find((lot: any) => lot.inventory > 0) || lots[0] || {};
                     return {
                         ...p,
-                        id: p.id || p._id || Date.now(), // Đảm bảo luôn có id
-                        _id: p._id || String(p.id || Date.now()), // Đảm bảo luôn có _id
-                        inventory: detail?.inventory ?? 0,
-                        barcode: detail?.barcode ?? '',
+                        id: p.id || p._id || Date.now(),
+                        _id: p._id || String(p.id || Date.now()),
+                        inventory: totalInventory,
+                        barcode: firstLot.barcode || '',
+                        lots: lots // Lưu danh sách lô để dùng khi thêm vào giỏ
                     };
                 }));
                 console.log("Products loaded:", productsWithDetail);
@@ -117,6 +126,7 @@ export default function BanHangPage() {
                 _id: productFromList._id,
                 name: productFromList.name || 'Sản phẩm không có tên',
                 price: productFromList.price || 0,
+                output_price: productFromList.output_price,
                 desc: productFromList.desc || 'Không có mô tả cho sản phẩm này',
                 image: Array.isArray(productFromList.image_links) && productFromList.image_links[0]
                     ? productFromList.image_links[0]
@@ -169,14 +179,27 @@ export default function BanHangPage() {
         (p.desc && p.desc.toLowerCase().includes(search.toLowerCase()))
     );
 
-    const handleAddToCart = (product: Product) => {
-        if (product.inventory === 0) {
-            setShowAlert({ type: 'error', message: 'Sản phẩm đã hết hàng!' });
+    const handleAddToCart = async (product: Product) => {
+        // Nếu chưa có danh sách lô, lấy lại từ API
+        let lots = product.lots;
+        if (!lots) {
+            const detail = await getProductDetail(String(product._id || product.id));
+            lots = detail?.lots;
+        }
+        lots = Array.isArray(lots) ? lots : [];
+        // Lọc lô còn tồn kho và chưa hết hạn
+        const now = new Date();
+        const validLots = lots.filter((l: any) => l.inventory > 0 && new Date(l.expiry_date) >= now);
+        // Sắp xếp lô theo hạn sử dụng tăng dần
+        validLots.sort((a: any, b: any) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime());
+        // Tìm lô hợp lệ đầu tiên
+        const lot = validLots[0];
+        if (!lot) {
+            setShowAlert({ type: 'error', message: 'Sản phẩm đã hết hàng hoặc hết hạn sử dụng!' });
             setTimeout(() => setShowAlert(null), 2000);
             return;
         }
-
-        // Đảm bảo lấy đủ thông tin sản phẩm và thêm trường qty theo yêu cầu của interface Product
+        // Tạo sản phẩm thêm vào giỏ với thông tin lô gần nhất còn hạn
         const productToAdd = {
             id: product.id || Number(product._id),
             _id: product._id || String(product.id),
@@ -184,21 +207,21 @@ export default function BanHangPage() {
             price: typeof (product as any).output_price === 'number'
                 ? (product as any).output_price
                 : (typeof product.price === 'number' ? product.price : 0),
-            stock: product.inventory || product.stock || 99,
-            inventory: product.inventory || 99,
+            stock: lot.inventory,
+            inventory: lot.inventory,
             image: Array.isArray(product.image_links) && product.image_links[0]
                 ? product.image_links[0]
                 : product.image,
             desc: product.desc || '',
             label: product.label || '',
-            barcode: product.barcode || '',
+            barcode: lot.barcode || '',
+            batch_number: lot.batch_number || '',
+            expiry_date: lot.expiry_date || '',
+            date_of_manufacture: lot.date_of_manufacture || '',
             qty: 1 // Thêm trường qty theo yêu cầu của interface Product
         };
-
         addToCart(productToAdd);
         setShowAlert({ type: 'success', message: 'Đã thêm vào giỏ hàng!' });
-
-        // Chỉ hiển thị thông báo thành công, không tự động chuyển trang
         setTimeout(() => {
             setShowAlert(null);
         }, 2000);
@@ -239,12 +262,12 @@ export default function BanHangPage() {
         setTimeout(() => setShowOrderSuccess(false), 2000);
     };
 
-    // Thêm hàm lấy thông tin chi tiết sản phẩm
+    // Thêm hàm lấy thông tin chi tiết sản phẩm (danh sách lô)
     const getProductDetail = async (productId: string) => {
         try {
             const res = await fetch(`/api/product-detail?id=${productId}`);
             if (!res.ok) return null;
-            return await res.json();
+            return await res.json(); // { lots: [...] }
         } catch {
             return null;
         }
@@ -580,7 +603,21 @@ export default function BanHangPage() {
                                             fontSize: 'var(--font-size-xl)',
                                             fontWeight: 700,
                                             color: 'var(--accent-color)'
-                                        }}>{typeof p.price === 'number' ? p.price.toLocaleString('vi-VN') + 'đ' : 'Liên hệ'}</div>
+                                        }}>
+                                            {(typeof p.output_price === 'number' && p.output_price > 0)
+                                                ? p.output_price.toLocaleString('vi-VN') + 'đ'
+                                                : (
+                                                    <>
+                                                        Liên hệ
+                                                        {typeof p.output_price === 'number' && (
+                                                            <span style={{ color: '#888', fontSize: 14, marginLeft: 8 }}>
+                                                                ({p.output_price.toLocaleString('vi-VN')}đ)
+                                                            </span>
+                                                        )}
+                                                    </>
+                                                )
+                                            }
+                                        </div>
 
                                         <div style={{
                                             fontSize: 'var(--font-size-xs)',
@@ -758,7 +795,29 @@ export default function BanHangPage() {
                                         color: 'var(--text-primary)',
                                         marginRight: 40,
                                         marginBottom: 0
-                                    }}>{selectedProduct.name || 'Chi tiết sản phẩm'}</h2>
+                                    }}>
+                                        {selectedProduct.name || 'Chi tiết sản phẩm'}
+                                        <span style={{
+                                            fontSize: 'var(--font-size-lg)',
+                                            fontWeight: 600,
+                                            color: 'var(--accent-color)',
+                                            marginLeft: 16
+                                        }}>
+                                            {(typeof selectedProduct.output_price === 'number' && selectedProduct.output_price > 0)
+                                                ? selectedProduct.output_price.toLocaleString('vi-VN') + 'đ'
+                                                : (
+                                                    <>
+                                                        Liên hệ
+                                                        {typeof selectedProduct.output_price === 'number' && (
+                                                            <span style={{ color: '#888', fontSize: 14, marginLeft: 8 }}>
+                                                                ({selectedProduct.output_price.toLocaleString('vi-VN')}đ)
+                                                            </span>
+                                                        )}
+                                                    </>
+                                                )
+                                            }
+                                        </span>
+                                    </h2>
 
                                     {selectedProduct.label && (
                                         <div style={{
@@ -803,16 +862,6 @@ export default function BanHangPage() {
                                     <div style={{ flex: '1 1 300px' }}>
                                         <div className="flex-column gap-md">
                                             <div style={{
-                                                fontSize: 'var(--font-size-2xl)',
-                                                color: 'var(--accent-color)',
-                                                fontWeight: 700
-                                            }}>
-                                                {typeof selectedProduct.price === 'number' ?
-                                                    selectedProduct.price.toLocaleString('vi-VN') + 'đ' :
-                                                    'Liên hệ'}
-                                            </div>
-
-                                            <div style={{
                                                 padding: 'var(--spacing-md)',
                                                 background: 'var(--background-color)',
                                                 borderRadius: 'var(--border-radius-md)',
@@ -821,6 +870,40 @@ export default function BanHangPage() {
                                                 lineHeight: 1.6
                                             }}>
                                                 {selectedProduct.desc || 'Không có mô tả cho sản phẩm này.'}
+                                            </div>
+
+                                            {/* Hiển thị giá bán */}
+                                            <div style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 10,
+                                                margin: '12px 0 0 0',
+                                                padding: '10px 0',
+                                                fontWeight: 700,
+                                                fontSize: 22,
+                                                color: (typeof selectedProduct.output_price === 'number' && selectedProduct.output_price > 0) ? '#1976d2' : '#f44336',
+                                                background: (typeof selectedProduct.output_price === 'number' && selectedProduct.output_price > 0) ? 'rgba(25, 118, 210, 0.07)' : 'rgba(244, 67, 54, 0.07)',
+                                                borderRadius: 10,
+                                                justifyContent: 'flex-start',
+                                            }}>
+                                                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6, color: '#1976d2' }}>
+                                                    <circle cx="12" cy="12" r="10" />
+                                                    <text x="12" y="16" textAnchor="middle" fontSize="12" fill="#1976d2" fontWeight="bold">₫</text>
+                                                </svg>
+                                                Giá bán:
+                                                {(typeof selectedProduct.output_price === 'number' && selectedProduct.output_price > 0)
+                                                    ? <span style={{ color: '#1976d2', fontWeight: 800, fontSize: 24, marginLeft: 6 }}>{selectedProduct.output_price.toLocaleString('vi-VN')}<span style={{ fontSize: 18 }}>đ</span></span>
+                                                    : (
+                                                        <span style={{ color: '#f44336', fontWeight: 700, fontSize: 20, marginLeft: 6 }}>
+                                                            Liên hệ
+                                                            {typeof selectedProduct.output_price === 'number' && (
+                                                                <span style={{ color: '#888', fontSize: 14, marginLeft: 8 }}>
+                                                                    ({selectedProduct.output_price.toLocaleString('vi-VN')}đ)
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    )
+                                                }
                                             </div>
 
                                             <div className="flex gap-md" style={{ alignItems: 'center' }}>
