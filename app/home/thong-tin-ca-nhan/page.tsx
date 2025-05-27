@@ -340,81 +340,81 @@ export default function ThongTinCaNhanPage() {
                                 />
                             </div>
 
-                            <div className="flex gap-md">
-                                {isEditing ? (
-                                    <>
-                                        <button
-                                            type="submit"
-                                            disabled={isLoading}
-                                            style={{
-                                                background: 'var(--success-color)',
-                                                color: 'white',
-                                                border: 'none',
-                                                borderRadius: 'var(--border-radius-md)',
-                                                padding: 'var(--spacing-md) var(--spacing-xl)',
-                                                fontWeight: 600,
-                                                cursor: isLoading ? 'wait' : 'pointer',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 'var(--spacing-xs)'
-                                            }}
-                                        >
-                                            {isLoading && (
-                                                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
-                                            )}
-                                            Lưu thay đổi
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setIsEditing(false);
-                                                // Reset form data
-                                                setFormData({
-                                                    name: customerData.name || '',
-                                                    email: customerData.email || '',
-                                                    phone: customerData.phone || '',
-                                                    address: customerData.address || '',
-                                                });
-                                            }}
-                                            style={{
-                                                background: '#f3f4f6',
-                                                color: '#374151',
-                                                border: 'none',
-                                                borderRadius: 'var(--border-radius-md)',
-                                                padding: 'var(--spacing-md) var(--spacing-xl)',
-                                                fontWeight: 600,
-                                                cursor: 'pointer'
-                                            }}
-                                        >
-                                            Hủy
-                                        </button>
-                                    </>
-                                ) : (
+                            {isEditing && (
+                                <div className="flex gap-md">
                                     <button
-                                        type="button"
-                                        onClick={() => setIsEditing(true)}
+                                        type="submit"
+                                        disabled={isLoading}
                                         style={{
-                                            background: 'var(--primary-color)',
+                                            background: 'var(--success-color)',
                                             color: 'white',
                                             border: 'none',
                                             borderRadius: 'var(--border-radius-md)',
                                             padding: 'var(--spacing-md) var(--spacing-xl)',
                                             fontWeight: 600,
-                                            cursor: 'pointer',
+                                            cursor: isLoading ? 'wait' : 'pointer',
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: 'var(--spacing-xs)'
                                         }}
                                     >
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                        </svg>
-                                        Chỉnh sửa thông tin
+                                        {isLoading && (
+                                            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                                        )}
+                                        Lưu thay đổi
                                     </button>
-                                )}
-                            </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsEditing(false);
+                                            setFormData({
+                                                name: customerData.name || '',
+                                                email: customerData.email || '',
+                                                phone: customerData.phone || '',
+                                                address: customerData.address || '',
+                                            });
+                                        }}
+                                        style={{
+                                            background: '#f3f4f6',
+                                            color: '#374151',
+                                            border: 'none',
+                                            borderRadius: 'var(--border-radius-md)',
+                                            padding: 'var(--spacing-md) var(--spacing-xl)',
+                                            fontWeight: 600,
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Hủy
+                                    </button>
+                                </div>
+                            )}
                         </form>
+                        {!isEditing && (
+                            <div className="flex gap-md" style={{ marginTop: 16 }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsEditing(true)}
+                                    style={{
+                                        background: 'var(--primary-color)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: 'var(--border-radius-md)',
+                                        padding: 'var(--spacing-md) var(--spacing-xl)',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 'var(--spacing-xs)'
+                                    }}
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                    </svg>
+                                    Chỉnh sửa thông tin
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     {/* Footer với thông tin thêm */}

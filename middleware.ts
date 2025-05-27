@@ -11,6 +11,8 @@ const PUBLIC_PATHS = [
     '/api/auth/register',
     '/api/auth/reset-password',
     '/api/auth/verify',
+    '/api/auth/send-otp',      // Cho phép gửi OTP không cần đăng nhập
+    '/api/auth/verify-otp',    // Cho phép xác thực OTP không cần đăng nhập
     '/home/ban-hang', // Cho phép truy cập trang bán hàng không cần đăng nhập
     '/home/gio-hang', // Cho phép truy cập giỏ hàng không cần đăng nhập
 ];

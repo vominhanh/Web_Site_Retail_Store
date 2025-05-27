@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '../../../untils/mongodb';
-import User from '@/models/User';
+import User from '../../../models/User';
 
 export async function GET(request: Request) {
     try {

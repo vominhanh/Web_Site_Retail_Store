@@ -221,6 +221,27 @@ export default function DangKyPage() {
                     width: '100%'
                 }}
             >
+                <button
+                    type="button"
+                    onClick={() => router.push('/home/ban-hang')}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--primary-color, #3f51b5)',
+                        fontWeight: 600,
+                        fontSize: 15,
+                        cursor: 'pointer',
+                        marginBottom: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6
+                    }}
+                >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                    Trở về
+                </button>
                 <h2 style={{
                     fontSize: 28,
                     fontWeight: 800,

@@ -17,6 +17,17 @@ const paymentMethods = [
     { value: "momo", label: "Ví MoMo" },
 ];
 
+// Enum cho trạng thái đơn hàng
+const OrderStatus = {
+    PENDING: 'pending',
+    CONFIRMED: 'confirmed',
+    SHIPPING: 'shipping',
+    DELIVERED: 'delivered',
+    CANCELLED: 'cancelled'
+} as const;
+
+const SHIPPING_FEE = 30000;
+
 export default function GioHangPage() {
     const { cart, increaseQty, decreaseQty, removeFromCart, clearCart, getTotalQty } = useCart();
     const [customer, setCustomer] = useState({ name: "", phone: "", address: "" });
@@ -25,12 +36,13 @@ export default function GioHangPage() {
     const [showAlert, setShowAlert] = useState<string | null>(null);
     const [discountCode, setDiscountCode] = useState("");
     const [appliedDiscount, setAppliedDiscount] = useState<{ code: string; value: number; name: string } | null>(null);
+    const [showInvoiceModal, setShowInvoiceModal] = useState(false);
     const router = useRouter();
     const [isLoggedIn, setIsLoggedIn] = useState(false);
 
     const subtotal = cart.reduce((sum, item) => sum + (typeof item.price === 'number' ? item.price * item.qty : 0), 0);
     const discountAmount = appliedDiscount ? subtotal * appliedDiscount.value : 0;
-    const total = subtotal - discountAmount;
+    const total = subtotal - discountAmount + SHIPPING_FEE;
 
     useEffect(() => {
         // Kiểm tra trạng thái đăng nhập
@@ -47,7 +59,7 @@ export default function GioHangPage() {
                 setCustomer({
                     name: customerData.name || '',
                     phone: customerData.phone || '',
-                    address: ''
+                    address: customerData.address || ''
                 });
             } catch (error) {
                 console.error('Lỗi khi phân tích dữ liệu khách hàng:', error);
@@ -82,9 +94,8 @@ export default function GioHangPage() {
         setDiscountCode("");
     };
 
-    const handleCheckout = () => {
-        if (!isLoggedIn) {
-            // Chuyển hướng đến trang đăng nhập nếu chưa đăng nhập
+    const handleCheckout = async () => {
+        if (payment === "cash" && !isLoggedIn) {
             const callbackUrl = encodeURIComponent('/home/gio-hang');
             router.push(`/home/dang-nhap?callbackUrl=${callbackUrl}`);
             return;
@@ -96,34 +107,78 @@ export default function GioHangPage() {
             return;
         }
 
-        // Tạo đơn hàng với thông tin giảm giá
-        const orderData = {
-            items: cart,
-            customer,
-            payment,
-            subtotal,
-            discount: appliedDiscount ? {
-                code: appliedDiscount.code,
-                value: appliedDiscount.value,
-                amount: discountAmount
-            } : null,
-            total
-        };
+        if (payment === "cash") {
+            setShowInvoiceModal(true);
+            return;
+        }
 
-        // Log đơn hàng để kiểm tra (có thể gửi đến API sau này)
-        console.log('Đơn hàng đã tạo:', orderData);
+        // Xử lý thanh toán cho các phương thức khác
+        await processOrder();
+    };
 
-        setShowOrderSuccess(true);
-        clearCart();
-        setCustomer({ name: "", phone: "", address: "" });
-        setPayment("cash");
-        setAppliedDiscount(null);
-        setDiscountCode("");
+    const processOrder = async () => {
+        try {
+            const today = new Date();
+            const dateStr = today.toLocaleDateString('vi-VN').split('/').join('');
+            const timeStr = today.getTime().toString().slice(-6);
+            // 1. Tạo Order trước với đúng schema
+            const orderData = {
+                order_code: `HD-ONLINE-${dateStr}-${timeStr}`,
+                items: cart.map(item => ({
+                    product_id: item._id || item.id,
+                    quantity: item.qty,
+                    price: item.price
+                })),
+                total_amount: subtotal - discountAmount + SHIPPING_FEE,
+                payment_method: payment,
+                status: 'pending',
+            };
+            const orderRes = await fetch('/api/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(orderData),
+            });
+            const orderResData = await orderRes.json();
+            if (!orderRes.ok) throw new Error(orderResData.message || 'Lỗi khi tạo đơn hàng');
 
-        setTimeout(() => {
-            setShowOrderSuccess(false);
-            router.push('/home/ban-hang');
-        }, 2000);
+            // Lấy customer_id từ localStorage
+            const storedCustomerData = localStorage.getItem('customerData');
+            const customerObj = storedCustomerData ? JSON.parse(storedCustomerData) : {};
+            const customerId = customerObj._id;
+
+            // 2. Tạo OrderShipping với phí ship mặc định và customer_id
+            const shippingRes = await fetch('/api/order-shipping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    order_id: orderResData.order._id,
+                    customer_id: customerId,
+                    customer_name: customer.name,
+                    customer_phone: customer.phone,
+                    shipping_address: customer.address,
+                    status: 'pending',
+                    shipping_fee: SHIPPING_FEE,
+                    payment_method: payment
+                }),
+            });
+            if (!shippingRes.ok) throw new Error('Lỗi khi tạo vận chuyển');
+
+            setShowOrderSuccess(true);
+            clearCart();
+            setCustomer({ name: "", phone: "", address: "" });
+            setPayment("cash");
+            setAppliedDiscount(null);
+            setDiscountCode("");
+            setShowInvoiceModal(false);
+
+            setTimeout(() => {
+                setShowOrderSuccess(false);
+                router.push('/home/ban-hang');
+            }, 2000);
+        } catch (error) {
+            setShowAlert("Có lỗi xảy ra khi tạo đơn hàng!");
+            setTimeout(() => setShowAlert(null), 2000);
+        }
     };
 
     return (
@@ -162,6 +217,103 @@ export default function GioHangPage() {
                         <div style={{ fontSize: 50, color: '#4CAF50', marginBottom: 20 }}>✓</div>
                         <h2 style={{ fontSize: 28, fontWeight: 800, color: '#333', marginBottom: 16 }}>Đơn hàng đã được tạo thành công!</h2>
                         <p style={{ fontSize: 16, color: '#666', marginBottom: 0 }}>Cảm ơn bạn đã mua hàng!</p>
+                    </div>
+                </div>
+            )}
+            {/* Modal Hóa đơn */}
+            {showInvoiceModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    width: '100vw',
+                    height: '100vh',
+                    background: 'rgba(0,0,0,0.6)',
+                    zIndex: 2000,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                }}>
+                    <div style={{
+                        background: '#fff',
+                        borderRadius: 16,
+                        padding: '40px',
+                        boxShadow: '0 4px 32px rgba(0,0,0,0.15)',
+                        maxWidth: 600,
+                        width: '90%',
+                        maxHeight: '90vh',
+                        overflowY: 'auto'
+                    }}>
+                        <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 24, textAlign: 'center' }}>Hóa đơn thanh toán</h2>
+
+                        <div style={{ marginBottom: 24 }}>
+                            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Thông tin khách hàng</h3>
+                            <div style={{ background: '#f9f9f9', padding: 16, borderRadius: 8 }}>
+                                <p><strong>Họ tên:</strong> {customer.name}</p>
+                                <p><strong>Số điện thoại:</strong> {customer.phone}</p>
+                                <p><strong>Địa chỉ:</strong> {customer.address}</p>
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: 24 }}>
+                            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Chi tiết đơn hàng</h3>
+                            <div style={{ background: '#f9f9f9', padding: 16, borderRadius: 8 }}>
+                                {cart.map((item) => (
+                                    <div key={item._id || item.id} style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>{item.name} x {item.qty}</span>
+                                        <span>{(item.price * item.qty).toLocaleString('vi-VN')}đ</span>
+                                    </div>
+                                ))}
+                                <div style={{ borderTop: '1px solid #ddd', marginTop: 12, paddingTop: 12 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: '18px' }}>
+                                        <span>Tổng tiền:</span>
+                                        <span>{subtotal.toLocaleString('vi-VN')}đ</span>
+                                    </div>
+                                    {appliedDiscount && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, color: '#4CAF50', fontSize: '18px' }}>
+                                            <span>Giảm giá ({appliedDiscount.name}):</span>
+                                            <span>-{discountAmount.toLocaleString('vi-VN')}đ</span>
+                                        </div>
+                                    )}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: '18px' }}>
+                                        <span>Phí vận chuyển:</span>
+                                        <span>{SHIPPING_FEE.toLocaleString('vi-VN')}đ</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: '18px' }}>
+                                        <span>Thành tiền:</span>
+                                        <span>{total.toLocaleString('vi-VN')}đ</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 16, justifyContent: 'flex-end' }}>
+                            <button
+                                onClick={() => setShowInvoiceModal(false)}
+                                style={{
+                                    padding: '12px 24px',
+                                    borderRadius: 8,
+                                    border: '1px solid #ddd',
+                                    background: '#fff',
+                                    fontWeight: 600,
+                                    cursor: 'pointer'
+                                }}>
+                                Hủy
+                            </button>
+                            <button
+                                onClick={processOrder}
+                                style={{
+                                    padding: '12px 24px',
+                                    borderRadius: 8,
+                                    border: 'none',
+                                    background: '#4CAF50',
+                                    color: '#fff',
+                                    fontWeight: 600,
+                                    cursor: 'pointer'
+                                }}>
+                                Xác nhận thanh toán
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -312,10 +464,10 @@ export default function GioHangPage() {
                                         </div>
                                     ))}
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 20 }}>
+                                {/* <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 20 }}>
                                     <div style={{ fontSize: 16, fontWeight: 600, color: '#666' }}>Tổng cộng:</div>
                                     <div style={{ fontSize: 26, fontWeight: 800, color: '#ff6b35' }}>{total.toLocaleString('vi-VN')}đ</div>
-                                </div>
+                                </div> */}
                             </>
                         )}
                     </div>
@@ -386,10 +538,15 @@ export default function GioHangPage() {
                                 )}
                             </div>
 
+
                             {/* Tổng tiền sau giảm giá */}
                             <div style={{ marginBottom: 24, padding: '16px 0', borderTop: '1px solid #eee', borderBottom: '1px solid #eee' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                                    <div style={{ color: '#666' }}>Tạm tính:</div>
+                                    <div style={{ color: '#666' }}>Phí vận chuyển:</div>
+                                    <div style={{ fontWeight: 600 }}>{SHIPPING_FEE.toLocaleString('vi-VN')}đ</div>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 24 }}>
+                                    <div style={{ color: '#666' }}>Tổng đơn:</div>
                                     <div style={{ fontWeight: 600 }}>{subtotal.toLocaleString('vi-VN')}đ</div>
                                 </div>
 
@@ -400,7 +557,9 @@ export default function GioHangPage() {
                                     </div>
                                 )}
 
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 18, marginTop: 8 }}>
+                                <div style={{
+                                    display: 'flex', justifyContent: 'space-between', fontWeight: 1000, fontSize: 24, marginTop: 8
+                                }}>
                                     <div>Tổng thanh toán:</div>
                                     <div style={{ color: '#ff6b35' }}>{total.toLocaleString('vi-VN')}đ</div>
                                 </div>
@@ -420,10 +579,8 @@ export default function GioHangPage() {
                                             border: '1px solid #ddd',
                                             fontSize: 15,
                                             outline: 'none',
-                                            fontWeight: 500,
-                                            backgroundColor: isLoggedIn ? '#f9f9f9' : 'white'
+                                            fontWeight: 500
                                         }}
-                                        readOnly={isLoggedIn}
                                     />
                                 </div>
                                 <div style={{ flex: '1 1 300px' }}>
@@ -486,6 +643,7 @@ export default function GioHangPage() {
                                     ))}
                                 </div>
                             </div>
+
                             <button
                                 onClick={handleCheckout}
                                 className="checkout-button"
@@ -501,7 +659,7 @@ export default function GioHangPage() {
                                     cursor: 'pointer',
                                     boxShadow: '0 4px 12px rgba(76,175,80,0.3)'
                                 }}>
-                                {isLoggedIn ? 'Thanh toán' : 'Đăng nhập để thanh toán'}
+                                {payment === "cash" && !isLoggedIn ? 'Đăng nhập để thanh toán' : 'Thanh toán'}
                             </button>
                         </div>
                     )}

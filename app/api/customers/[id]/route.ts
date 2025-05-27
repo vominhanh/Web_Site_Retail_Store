@@ -5,11 +5,11 @@ import { jwtVerify } from 'jose';
 
 export async function PUT(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    context: { params: { id: string } }
 ) {
     try {
-        // Lấy customer ID từ params
-        const customerId = params.id;
+        // Lấy customer ID từ context
+        const customerId = (await context.params).id;
 
         if (!customerId) {
             return NextResponse.json(
@@ -144,11 +144,11 @@ export async function PUT(
 
 export async function GET(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    context: { params: { id: string } }
 ) {
     try {
-        // Lấy customer ID từ params
-        const customerId = params.id;
+        // Lấy customer ID từ context
+        const customerId = context.params.id;
 
         if (!customerId) {
             return NextResponse.json(
